@@ -47,15 +47,14 @@ void main(void)
   Set_Alarm();
   Pulse_Acquire_Config();
   
-//  IWDG_INIT(); 
+  IWDG_INIT(); 
   enableInterrupts();                                       //开总中断
 /////////////////////////////////////////////////////////    
   Read_ACUM_Flow(ADD_FLOW_ADD,&Cal.Water_Data);         //读取当前累积流量
   Read_Meter_Parameter();                               //读取水表参数
   Read_History_Save_Index();                            //读取历史数据保存索引
   
-  TPB21.Report_Bit = 1;
-  TPB21.Start_Process = TPB21_RECONNECT;
+  TPB21_Power_On();
 
   
   while (1)

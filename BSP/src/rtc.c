@@ -238,11 +238,10 @@ void Wake_Interrupt (void)
       MeterParameter.ReportTiming++;
       if( (MeterParameter.ReportTiming/60) >= MeterParameter.ReportFrequency )
       {   
-        TPB21.Report_Bit = 1;
         if(TPB21.Start_Process == TPB21_POWER_DOWN)
         {
           MeterParameter.DeviceStatus = RUN;
-          TPB21.Start_Process = TPB21_RECONNECT;
+          TPB21_Power_On();
         }     
         MeterParameter.ReportTiming = 0;
       }  

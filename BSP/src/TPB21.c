@@ -36,23 +36,17 @@ struct TPB21_Str TPB21;            //TPB21 用的寄存器
 *********************************************************************************/
 void TPB21_Power_On(void)        //TPB21上电
 {
+  MeterParameter.DeviceStatus = RUN;
+  
   RCC_Configuration();
   USART2_Configuration();       //初始化串口2
-  
-  Uart2.Sent_Length = 0;                                //清空串口2发送长度
-  Uart2.Receive_Length = 0;                             //清空串口2接收长度
-  Uart2.Send_Busy = FALSE;                              //清空串口2发送忙标志  
-  Uart2.Receive_Busy = FALSE;                           //清空串口2接收忙
-  Uart2.Receive_Pend = FALSE;                           //清空串口2挂起
-  
   
   GPIO_SetBits(GPIOE,GPIO_Pin_2);       //VBAT拉高        3.1-4.2V，典型值3.6V
   GPIO_SetBits(GPIOE,GPIO_Pin_1);      //复位脚拉低
   
-  TPB21.Start_Process = TPB21_POWER_UP; 
-  
+  TPB21.Report_Bit = 1;
   Create_Timer(ONCE,1,
-                     TPB21_Reset,0,PROCESS); 
+               TPB21_Reset,0,PROCESS); 
 }
 /*********************************************************************************
  Function:      //
@@ -69,7 +63,7 @@ void TPB21_Power_Off(void)        //TPB21断电
 }
 /*********************************************************************************
  Function:      //
- Description:   //
+ Description:   //TPB21复位
  Input:         //
                 //
  Output:        //
@@ -79,23 +73,29 @@ void TPB21_Power_Off(void)        //TPB21断电
 void TPB21_Reset(void)
 {
   GPIO_ResetBits(GPIOE,GPIO_Pin_1);     //复位脚拉高
-  
-  Create_Timer(ONCE,30,
-                     TPB21_Start,0,PROCESS); 
+
+  Create_Timer(ONCE,5,
+               TPB21_Start,0,PROCESS); 
 }
 
 /*********************************************************************************
  Function:      //
- Description:   //
+ Description:   ////TPB21启动
  Input:         //
                 //
  Output:        //
  Return:      	//
  Others:        //
 *********************************************************************************/
-void TPB21_Start(void)        //TPB21复位
+void TPB21_Start(void)        
 {
-  TPB21.Start_Process = AT; //指向下一个流程
+  Uart2.Sent_Length = 0;                                //清空串口2发送长度
+  Uart2.Receive_Length = 0;                             //清空串口2接收长度
+  Uart2.Send_Busy = FALSE;                              //清空串口2发送忙标志  
+  Uart2.Receive_Busy = FALSE;                           //清空串口2接收忙
+  Uart2.Receive_Pend = FALSE;                           //清空串口2挂起
+  
+  TPB21.Start_Process = NRB; //指向下一个流程
   TPB21.Incident_Pend = TRUE; //事件标志挂起
   TPB21.Err_Conner.Connect = SEND_ERROR_NUM;     //连接超时次数
 }
@@ -131,7 +131,7 @@ void TPB21_Process(void)                         //TPB21主进程
       else     //否则重连
       {
         MeterParameter.DeviceStatus = RUN;
-        TPB21_Power_On();
+        TPB21_Start();
       }
     }
   }
@@ -141,11 +141,25 @@ void TPB21_Process(void)                         //TPB21主进程
     TPB21.Incident_Pend = FALSE; //清除事件挂起
     switch(TPB21.Start_Process)
     {
+    case NRB:                  //重启
+      {
+        TPB21_Data_Send("AT+NRB\r\n",8);
+        Create_Timer(ONCE,10,
+                     TPB21_Recv_Timeout_CallBack,0,PROCESS); 
+      }
+      break;
     case AT:                  //同步波特率
       {
         TPB21_Data_Send("AT\r\n",4);
         Create_Timer(ONCE,TPB21_R_TIMEROUT_TIME,
                      TPB21_Recv_Timeout_CallBack,0,PROCESS);
+      }
+      break;
+    case MLWNMI0:                 //禁用接收消息指示
+      {
+        TPB21_Data_Send("AT+MLWNMI=0\r\n",13);
+        Create_Timer(ONCE,TPB21_R_TIMEROUT_TIME,
+                     TPB21_Recv_Timeout_CallBack,0,PROCESS); 
       }
       break;
     case GETNBAND:               //查询频段
@@ -226,7 +240,7 @@ void TPB21_Process(void)                         //TPB21主进程
                      TPB21_Recv_Timeout_CallBack,0,PROCESS);//建议定时器延时回调
       }
       break;
-    case MLWNMI:                 //设置接收消息指示
+    case MLWNMI1:                 //启用接收消息指示
       {
         TPB21_Data_Send("AT+MLWNMI=1\r\n",13);
         Create_Timer(ONCE,TPB21_R_TIMEROUT_TIME,
@@ -243,13 +257,10 @@ void TPB21_Process(void)                         //TPB21主进程
       }
       break;
     case TPB21_CONNECT_ERROR:      //连接失败
-      TPB21_Power_Off();
       TPB21.Start_Process = TPB21_RECONNECT;
       TPB21.Reconnect_Times++;
       break;
-    case TPB21_POWER_DOWN:       //发送接收完成则直接关电
-      TPB21_Power_Off();
-      
+    case TPB21_POWER_DOWN:       //发送接收完成则直接睡眠
       MCU_DeInit(); 
       break;
     default:
@@ -260,22 +271,39 @@ void TPB21_Process(void)                         //TPB21主进程
   {
     memset(TPB21.R_Buffer,'\0',RECV_BUFF_SIZE);//清缓存
     TPB21.Recv_Length = Uart2_Receive((unsigned char *)TPB21.R_Buffer);//接收数据
-
-    if(strstr(TPB21.R_Buffer,"+MLWDLDATA:") != NULL)
-    {
-        TPB21.Start_Process = MLWULDATA;
-    }
     
     switch(TPB21.Start_Process)
     {
+    case NRB:                  //重启
+      {
+        if(strstr(TPB21.R_Buffer,"REBOOT_CAUSE_APPLICATION_AT") != NULL)
+        {
+          TPB21.Start_Process = AT;
+          TPB21.Incident_Pend = TRUE;//标记挂起
+          Delete_Timer(TPB21_Recv_Timeout_CallBack);//删除超时回调
+        }
+      }
+      break;
     case AT:            //同步波特率
       {
         if(strstr(TPB21.R_Buffer,"OK") != NULL)
         {         
-          TPB21.Start_Process = GETNBAND;
+          TPB21.Start_Process = MLWNMI0;
           TPB21.Incident_Pend = TRUE;//标记挂起
           Delete_Timer(TPB21_Recv_Timeout_CallBack);//删除超时回调
         }
+      }
+      break;
+    case MLWNMI0:                 //禁用接收消息指示
+      {
+        if(strstr(TPB21.R_Buffer,"OK") != NULL)
+        {         
+          TPB21.Start_Process = GETNBAND;
+
+          Delete_Timer(TPB21_Recv_Timeout_CallBack);//删除超时回调
+          Create_Timer(ONCE,20,
+                       TPB21_Delay_CallBack,0,PROCESS); 
+        }  
       }
       break;
     case GETNBAND:               //查询频段
@@ -409,13 +437,13 @@ void TPB21_Process(void)                         //TPB21主进程
       {
         if(strstr(TPB21.R_Buffer,"OK") != NULL)
         {         
-          TPB21.Start_Process = MLWNMI;
+          TPB21.Start_Process = MLWNMI1;
           TPB21.Incident_Pend = TRUE;//标记挂起
           Delete_Timer(TPB21_Recv_Timeout_CallBack);//删除超时回调
         }  
       }
       break;
-    case MLWNMI:                 //设置接收消息指示
+    case MLWNMI1:                 //设置接收消息指示
       {
         if(strstr(TPB21.R_Buffer,"OK") != NULL)
         {         
@@ -495,7 +523,7 @@ void TPB21_Process(void)                         //TPB21主进程
 *********************************************************************************/
 void TPB21_Data_Send(unsigned char *Data,unsigned short Len)
 {    
- // memset(Uart2.R_Buffer,'\0',RECV_BUFF_SIZE);//清接收缓冲区
+  memset(Uart2.R_Buffer,'\0',RECV_BUFF_SIZE);//清接收缓冲区
   Uart2_Send((unsigned char*)Data,Len);
 }
 
@@ -537,20 +565,6 @@ void TPB21_Delay_CallBack(void)
 {
   TPB21.Incident_Pend = TRUE;//标记挂起
 }
-/*********************************************************************************
- Function:      //
- Description:   //TPB21断电回调函数
- Input:         //
-                //
- Output:        //
- Return:        //
- Others:        //
-*********************************************************************************/
-//void TPB21_PowerDown_CallBalk(void)
-//{
-//  TPB21.Incident_Pend = TRUE;//标记挂起
-//  TPB21.Start_Process = TPB21_POWER_DOWN;
-//}
 /*********************************************************************************
  Function:      //
  Description:   //接收消息进程
@@ -781,8 +795,6 @@ void ACK(u8 messageId,u8 errcode,u8 mid[4])
  Return:        //
  Others:        //
 *********************************************************************************/
-//uint8_t data[320] = "AT+NMGS=147,00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000\
-//0000000000000030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030\r\n";
 void Report_All_Parameters(void)
 {
   uint8_t data[200] = "AT+MLWULDATA=79,00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000\r\n";

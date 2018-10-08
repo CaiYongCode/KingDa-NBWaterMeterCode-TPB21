@@ -29,9 +29,9 @@ struct Error_Connter_Str
 
 enum Start_Process_En   //启动流程
 {
-  TPB21_RECONNECT,        //重连
   TPB21_POWER_DOWN,      //掉电
   TPB21_POWER_UP,        //上电
+  TPB21_RECONNECT,        //重连
   
   NRB,                  //重启
   AT,                   //同步波特率
@@ -41,7 +41,7 @@ enum Start_Process_En   //启动流程
   SETCFUN,              //设置电话功能
   CIMI,                 //查询IMSI
   CGSN,                 //查询IMEI  
-  CCID,                //查询CCID
+  CCID,                 //查询CCID
   CSQ,                  //查询信号强度
   GETCGDCONT,           //查询APN
   SETCGDCONT,           //设置APN  
@@ -51,12 +51,13 @@ enum Start_Process_En   //启动流程
   CCLK,                 //查询实时时间
   GETNCDP,              //查询CDP服务器
   SETNCDP,              //设置CDP服务器
-  MLWSMI,                 //设置发送消息指示
-  MLWNMI,                 //设置接收消息指示
-  MLWULDATA,              //发送消息
-  MLWQMGR,                //查询消息接收
-  MLWMGR,                 //接收消息
-  TPB21_CONNECT_ERROR,      //启动错误
+  MLWSMI,               //设置发送消息指示
+  MLWNMI0,              //禁用接收消息指示
+  MLWNMI1,              //启用接收消息指示
+  MLWULDATA,            //发送消息
+  MLWQMGR,              //查询消息接收
+  MLWMGR,               //接收消息
+  TPB21_CONNECT_ERROR,  //启动错误
 };
   
 struct TPB21_Str//TPB21 总结构体
